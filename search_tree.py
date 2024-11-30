@@ -1,7 +1,10 @@
+import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from datetime import datetime
 from abc import abstractmethod
+
 import numpy as np
+from loguru import logger
+
 from connect_game import ConnectGame, GameState
 
 class TreeNode:  
@@ -24,13 +27,11 @@ class TreeNode:
 
 class SearchTree:
 
-    def __init__(self, game: ConnectGame, verbose=False, debug=False):
+    def __init__(self, game: ConnectGame):
         """
         Args:
             game: game object
         """
-        self.verbose = verbose
-        self.debug = debug
         self.game = game
         self.root = None
     
@@ -48,17 +49,18 @@ class SearchTree:
         self.root = TreeNode(state, None)  
         ...
     
-    def print_tree(self, node, deepth=1):
-        if node is None or deepth == 0:
-            return
-        self._print_tree_dfs(node, deepth)
-    
-    def _print_tree_dfs(self, node, deepth, indent_num=0):
-        print(f"{indent_num * '--'}Move: {node.move} visits: {node.visits} score: {node.score}")
-        deepth -= 1
-        if deepth != 0:
-            for child in node.children:
-                self._print_tree_dfs(child, deepth, indent_num+1)
+    def tree2str(self, node, deepth=1):  
+        if node is None or deepth == 0:  
+            return ""  
+        return self._tree2str_dfs(node, deepth)  
+
+    def _tree2str_dfs(self, node, deepth, indent_num=0):  
+        output = f"{indent_num * '--'}Move: {node.move} visits: {node.visits} score: {node.score}\n"  
+        deepth -= 1  
+        if deepth != 0:  
+            for child in node.children:  
+                output += self._tree2str_dfs(child, deepth, indent_num+1)  
+        return output
     
     def play(self, act_player='X'):
         """
@@ -87,8 +89,7 @@ class SearchTree:
 
             # computer player
             best_move, act_prob = self.search(state, maxmize)
-            if self.debug:
-                self.print_tree(self.root)
+            print(self.tree2str(self.root))
             state = self.game.make_move(state, best_move)
             print(f"Computer move: {best_move} Action prob: \n{act_prob}")
 
@@ -96,10 +97,11 @@ class SearchTree:
         self.game.print_winner(state)
 
     def self_play(self, total_games=1000, enhance=False):
+        start_time = time.time()
         maxmize = True
         collected_data = []
         for n in range(total_games):
-            print(f"Game {n+1}, time: {datetime.now()}")
+            logger.trace(f"Self-Play game begins. Game {n}/{total_games}")
             states, act_probs, current_players = [], [], []
             state = self.game.reset()
             while not self.game.is_over(state):
@@ -117,6 +119,7 @@ class SearchTree:
             if enhance:
                 game_stack = self._enhance_data(game_stack, skip_front=1)
                 collected_data.extend(game_stack)
+        logger.info(f"Self-play finished in {time.time() - start_time:.2f}s.")
         return collected_data
 
     def paralle_self_play(self, total_games=1000, enhance=False, processes=10):
@@ -174,13 +177,10 @@ def play_for_win_rate(game: ConnectGame, player: SearchTree, oponent: SearchTree
         while not game.is_over(state):
             if first_play:
                 move, _ = player.search(state, maxmize=first_play)
-                print(f"{player.__class__} move: {move}")
             else:
                 move, _ = oponent.search(state, maxmize=first_play)
-                print(f"{oponent.__class__} move: {move}")
             first_play = not first_play
             state = game.make_move(state, move)
-            # game.print_state(state)
         if game.get_reward(state) > 0:
             win_count += 1
     return win_count / total_games

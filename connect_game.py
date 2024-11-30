@@ -1,5 +1,6 @@
 
 #%%
+from loguru import logger
 import numpy as np
 
 #%%
@@ -39,8 +40,7 @@ class ConnectGame:
         """
         # assert state.board[move[0], move[1]] == 0, 'Invalid move'
         if state.board[move[0], move[1]] != 0:
-            print(self.get_possible_moves(state))
-            print(f"Invalid move: {move}")
+            logger.error(f"Invalid move:{move}\n Possible moves: \n{self.get_possible_moves(state).T}")
             raise Exception('Invalid move')
         new_state = GameState(state.board.copy(), state.current_player)
         new_state.board[move[0], move[1]] = new_state.current_player
@@ -126,7 +126,7 @@ class ConnectGame:
 if __name__ == '__main__':
     pass
     #%%
-    game = ConnectGame(3, 3, 3)
+    game = ConnectGame(3, 3)
     state = game.reset()
     game.print_state(state)
     while not game.is_over(state):

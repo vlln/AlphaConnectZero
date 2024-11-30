@@ -1,12 +1,15 @@
 #%%
 import pathlib
 from datetime import datetime
+import time
+import random
+from collections import deque
+from concurrent.futures import ProcessPoolExecutor, as_completed  
+
 import torch
 import torch.nn.functional as F
 import numpy as np
-import random
-from collections import deque
-from tqdm import tqdm
+from loguru import logger
 
 from mcts import MCTS
 from connect_game import ConnectGame, GameState
@@ -48,7 +51,7 @@ class AlphaConnectZero(MCTS):
         if path is None:    # load best model
             path = self.save_dir / 'model_best.pth'
         if not path.exists():
-            Warning('best model not found!')
+            logger.warning('Best model not found!')
             self.save_model()
             return
         self.model.load_state_dict(torch.load(path, weights_only=True))
@@ -64,40 +67,57 @@ class AlphaConnectZero(MCTS):
     def train(self, epochs=1000):
 
         for epoch in range(epochs):
+
             # self play
             self.model.eval()
-            print('self play', datetime.now())
+
             # TODO virtual self play
             self_play_data = self.self_play(2, enhance=True)
+
             # self_play_data = self.paralle_self_play(4, enhance=True)
             self.replay_buffer.extend(self_play_data)
+
             # sample from replay buffer
             minibatch = random.sample(self.replay_buffer, BATCH_SIZE)
             states, act_probs, values = self._array2tensor(minibatch)
+
             # update model
-            # print('train', datetime.now())
+            start_time = time.time()
             self.model.train()
+            mean_loss = 0
             for i in range(self.train_steps):
-                loss = self._train_step(states, act_probs, values)
+                mean_loss += self._train_step(states, act_probs, values)
+            logger.info(f"Epoch [{epoch}/{epochs}], mean loss: {mean_loss / self.train_steps:.3f}, " + 
+                        f"train elapsed: {time.time() - start_time: .2f}s.")
+
             # evaluate model
             if epoch % 10 == 0:    # evaluate every 10 epochs
+
                 # save model
                 self.save_model(tag=epoch)
+                logger.info(f"The checkpoint for epoch [{epoch}] has been saved.")
+
                 # evaluate
                 win_rate = self.evaluate()
-                print('win rate', win_rate)
+                logger.info("Win rate: {:.3f}")
                 if win_rate > 0.5:
                     self.save_model()
-    
-    def evaluate(self, oponent_num=3, game_num=4):
-        # TODO multi-thread
-        win_rate = 0
-        for _ in range(oponent_num):
-            oponent = AlphaConnectZero(self.game, expand_n=self.expand_n)
-            # TODO random select oponent
-            oponent.load_model()
-            win_rate += play_for_win_rate(self.game, self, oponent, game_num)
-        return win_rate / oponent_num
+                    logger.success("New best model is saved!")
+
+    def evaluate(self, oponent_num=3, game_num=4):  
+        win_rate = 0  
+        with ProcessPoolExecutor() as executor:  
+            futures = []  
+            for _ in range(oponent_num):  
+                oponent = AlphaConnectZero(self.game, expand_n=self.expand_n)  
+                # TODO random select oponent  
+                oponent.load_model()  
+                futures.append(executor.submit(play_for_win_rate, self.game, self, oponent, game_num))  
+
+            for future in as_completed(futures):  
+                win_rate += future.result()  
+
+        return win_rate / oponent_num  
     
     def _array2tensor(self, batch_data):
         """
@@ -112,7 +132,7 @@ class AlphaConnectZero(MCTS):
     
     def _train_step(self, state_batch, action_batch, value_batch):
         pred_act, pred_value = self.model(state_batch)
-        loss_policy = F.kl_div(pred_act, action_batch)
+        loss_policy = F.kl_div(torch.log(pred_act), action_batch, reduction='batchmean')
         loss_value = F.mse_loss(pred_value, value_batch)
         loss = loss_policy + loss_value
         self.optimizer.zero_grad()
@@ -144,8 +164,9 @@ class AlphaConnectZero(MCTS):
         return self.value.detach().item()
 
 
-#%%
 if __name__ == '__main__':
+    ...
+#%%
     game = ConnectGame(9, 4)
-    tree = AlphaConnectZero(game, verbose=True, iterations=10, train_steps=4, expand_n=5)
-    tree.train()
+    tree = AlphaConnectZero(game, iterations=10, train_steps=4, expand_n=5)
+    tree.train(epochs=2)

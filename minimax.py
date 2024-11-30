@@ -1,5 +1,7 @@
-from search_tree import SearchTree, TreeNode  
 import numpy as np
+from loguru import logger
+
+from search_tree import SearchTree, TreeNode  
 
 class Minimax(SearchTree):  
 
@@ -9,8 +11,7 @@ class Minimax(SearchTree):
         move, value = self._search(self.root, True, float('-inf'), float('inf'))  
         act_prob = np.zeros((self.game.size, self.game.size))
         act_prob[move[0], move[1]] = 1
-        if self.debug:
-            print("Number of nodes visited: ", self.count)  
+        logger.debug(f"Number of nodes visited: {self.count}")  
         return move, act_prob
     
     def _search(self, node:TreeNode, is_maximizing, alpha, beta):  

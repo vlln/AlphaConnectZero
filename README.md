@@ -1,6 +1,6 @@
 ## AlphaZero for Connect Game
 
-**This is a PyTorch implementation of AlphaZero for Connect Game.**
+This is a PyTorch implementation of AlphaGoZero for Connect Game.
 
 **ATTENTION: This is a work in progress. The code is not complete and may not work properly.**
 

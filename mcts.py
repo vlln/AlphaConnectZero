@@ -63,7 +63,6 @@ class MCTS(SearchTree):
             move = random.choice(self.game.get_possible_moves(state))  
             state = self.game.make_move(state, move)  
         return self.game.get_reward(state) * self.act_player
-        # return 1 if self.game.get_reward(state) * self.act_player else 0
 
     def _backpropagate(self, node:TreeNode, reward):  
         node.visits += 1  
@@ -80,16 +79,6 @@ class MCTS(SearchTree):
             best_child = max(node.children, key=ucb1)
         else:
             best_child = min(node.children, key=ucb1)
-
-        # best_score = float('inf') * self.act_player
-        # for child in node.children:  
-        #     exploration_factor = self.c_puct * math.sqrt(math.log(node.visits) / (child.visits + 1))  
-        #     score = child.score / (child.visits + 1) + exploration_factor  
-        #     if score > best_score:  
-        #         best_score = score  
-                # best_child = child  
-        # print(node.state.board)
-        # print(f"best_child: {best_child.move}, best_score: {best_score}")
 
         return best_child
     
