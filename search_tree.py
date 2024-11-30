@@ -125,6 +125,9 @@ class SearchTree:
 
     def paralle_self_play(self, total_games=1000, enhance=False, processes=10):
         games_per_process = total_games // processes
+        if total_games < processes:
+            processes = total_games
+            games_per_process = 1
         results = []
         with ProcessPoolExecutor(max_workers=processes) as executor:  
             futures = {executor.submit(self.self_play, games_per_process, enhance=True): i for i in range(processes)}  

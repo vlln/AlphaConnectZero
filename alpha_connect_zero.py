@@ -18,18 +18,18 @@ from search_tree import play_for_win_rate
 
 np.set_printoptions(precision=3, suppress=True)
 #%%
-REPLAY_BUFFER_SIZE = 1000000
-BATCH_SIZE = 1024
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 class AlphaConnectZero(MCTS):
 
     def __init__(self, 
                  *args, 
-                 expand_n=10, 
+                 train_epochs=10,
                  train_steps=100,
                  self_play_games=10,
                  lr=0.001,
+                 replay_buffer_size=1000000,
+                 batch_size=1024,
                  save_dir='./checkpoints', 
                  **kwargs):
         """
@@ -41,14 +41,15 @@ class AlphaConnectZero(MCTS):
         super().__init__(*args, **kwargs)
         self.save_dir = pathlib.Path(save_dir)
         self.save_dir.mkdir(parents=True, exist_ok=True)
-        self.expand_n = expand_n    # number of expanding leaves in MCTS
+        self.train_epochs = train_epochs
         self.train_steps = train_steps
         self.train_search_iterations = self.iterations
         self.self_play_games = self_play_games
+        self.batch_size = batch_size
         self.model = ZeroModel(self.game.size)
         self.load_model()
         self.model.eval()
-        self.replay_buffer = deque(maxlen=REPLAY_BUFFER_SIZE)
+        self.replay_buffer = deque(maxlen=int(replay_buffer_size))
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
     
     def load_model(self, path=None):
@@ -69,20 +70,18 @@ class AlphaConnectZero(MCTS):
             path = self.save_dir / f'model_{str(tag)}.pth'
         torch.save(self.model.state_dict(), path)
     
-    def train(self, epochs=1000):
-
-        for epoch in range(epochs):
+    def train(self):
+        for epoch in range(self.train_epochs):
 
             # self play
             self.model.eval()
 
-            # TODO virtual self play
             # self_play_data = self.self_play(self.self_play_games, enhance=True)
             self_play_data = self.paralle_self_play(self.self_play_games, enhance=True)
             self.replay_buffer.extend(self_play_data)
 
             # sample from replay buffer
-            minibatch = random.sample(self.replay_buffer, BATCH_SIZE)
+            minibatch = random.sample(self.replay_buffer, self.batch_size)
             states, act_probs, values = self._array2tensor(minibatch)
 
             # update model
@@ -91,7 +90,7 @@ class AlphaConnectZero(MCTS):
             mean_loss = 0
             for i in range(self.train_steps):
                 mean_loss += self._train_step(states, act_probs, values)
-            logger.info(f"Epoch [{epoch+1}/{epochs}], mean loss: [{mean_loss / self.train_steps:.3f}], " + 
+            logger.info(f"Epoch [{epoch+1}/{self.train_epochs}], mean loss: [{mean_loss / self.train_steps:.3f}], " + 
                         f"train elapsed: {time.time() - start_time: .2f}s.")
 
             # evaluate model
@@ -114,7 +113,7 @@ class AlphaConnectZero(MCTS):
         with ProcessPoolExecutor() as executor:  
             futures = []  
             for _ in range(oponent_num):  
-                oponent = AlphaConnectZero(self.game, expand_n=self.expand_n, iterations=search_iterations)  
+                oponent = AlphaConnectZero(self.game, iterations=search_iterations)  
                 # TODO random select oponent  
                 oponent.load_model()  
                 futures.append(executor.submit(play_for_win_rate, self.game, self, oponent, game_num))  
@@ -152,29 +151,39 @@ class AlphaConnectZero(MCTS):
         board = torch.tensor(node.state.board, dtype=torch.float32).unsqueeze(0).unsqueeze(0).to(DEVICE)
         with torch.no_grad():
             act_prob, self.value = self.model(board)       # preserve the value for backpropagation
-        act_prob = F.softmax(act_prob, dim=1)
+        act_prob = F.softmax(act_prob, dim=1).detach().squeeze(0)
+        best_move = self.game.action2position(torch.multinomial(act_prob.view(-1), 1).item())
         legal_mask = self.game.get_legal_moves(node.state)
-        legal_mask = torch.tensor(legal_mask, dtype=torch.float32).to(DEVICE)
-        act_prob = act_prob * legal_mask
-        action_set = set()
-        expand_n = min(self.expand_n, legal_mask.sum())
-        while len(action_set) < expand_n:
-            action = torch.multinomial(act_prob.view(-1), 1).item()
-            if action not in action_set:
-                action_set.add(action)
-            move = self.game.action2position(action)
+        act_prob = act_prob.numpy() * legal_mask    # shape: (n, n)
+
+        moves = np.argwhere(act_prob > 0)
+        best_node = node
+        for move in moves:
             state = self.game.make_move(node.state, move)
             child_node = node.expand(state, move)
-        return random.choice(node.children)
-    
+            child_node.p = act_prob[move]
+            if np.array_equal(best_move, move):
+                best_node = child_node
+        return best_node
+
     def _simulate(self, state):
         return self.value.detach().item()
 
 
+REPLAY_BUFFER_SIZE = 1000000
+BATCH_SIZE = 16
 if __name__ == '__main__':
     ...
 #%%
     logger.add('logs/alpha_connect_zero.log', level='INFO')
     game = ConnectGame(9, 4)
-    tree = AlphaConnectZero(game, iterations=100, train_steps=4, expand_n=5)
-    tree.train(epochs=2)
+    tree = AlphaConnectZero(
+        game, 
+        iterations=1, 
+        train_epochs=1,
+        train_steps=4, 
+        self_play_games=10,
+        replay_buffer_size=REPLAY_BUFFER_SIZE, 
+        batch_size=BATCH_SIZE
+        )
+    tree.train()
