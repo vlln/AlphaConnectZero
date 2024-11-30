@@ -18,7 +18,13 @@ from search_tree import play_for_win_rate
 
 np.set_printoptions(precision=3, suppress=True)
 #%%
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+try:
+    import torch_sdaa
+    DEVICE = torch.device('sdaa' if torch.sdaa.is_available() else 'cpu')
+except ImportError:
+    DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+logger.success(f'Using device: {DEVICE}')
 
 class AlphaConnectZero(MCTS):
 
