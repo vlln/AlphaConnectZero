@@ -1,0 +1,4 @@
+.md
+!README.md
+/checkpoints/*
+/__pycache__/* 
