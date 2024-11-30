@@ -3,41 +3,59 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+class ResidualBlock(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(ResidualBlock, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.relu = nn.ReLU()
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+
+    def forward(self, x):
+        out = self.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        out += x
+        out = self.relu(out)
+        return out
+
 class ZeroModel(nn.Module):
     def __init__(self, board_size, in_channels=1):
         super(ZeroModel, self).__init__()
         # TODO: input a condition vector that represents the current rule of the game. so that the model can learn to play different games
-        # TODO: delete the max pooling layers
+
         self.board_size = board_size
         self.conv1 = nn.Conv2d(in_channels, 128, kernel_size=3, stride=1, padding=1)
-        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.conv2 = nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1)
-        self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.conv3 = nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1)
-        self.pool3 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.backbone = self._make_leyer(128, 16)
+
+        self.policy_conv = nn.Conv2d(128, 3, kernel_size=1)
         self.policy_head = nn.Sequential(
-            nn.Linear(128 * (board_size // 6), 64),
+            nn.Linear(3 * board_size * board_size, 128),
             nn.ReLU(),
-            nn.Linear(64, board_size * board_size)
+            nn.Linear(128, board_size * board_size)
         )
+        self.value_conv = nn.Conv2d(128, 1, kernel_size=1)
         self.value_head = nn.Sequential(
-            nn.Linear(128 * (board_size // 6), 64),
+            nn.Linear(board_size * board_size, 64),
             nn.ReLU(),
             nn.Linear(64, 1),
             nn.Sigmoid()
         )
 
     def forward(self, x):
-        x = self.pool1(F.relu(self.conv1(x)))
-        x = self.pool2(F.relu(self.conv2(x)))
-        x = self.pool3(F.relu(self.conv3(x)))
-        x = x.view(x.size(0), -1)
-        value = self.value_head(x)
-        policy = self.policy_head(x)
+        x = self.conv1(x)
+        x = self.backbone(x)
+        policy = self.policy_head(self.policy_conv(x).view(x.shape[0], -1))
+        value = self.value_head(self.value_conv(x).view(x.shape[0], -1))
         policy = F.softmax(policy, dim=1)
         policy = policy.view(-1, self.board_size, self.board_size)
         return policy, value
     
+    def _make_leyer(self, channels, num_blocks):
+        layers = []
+        for _ in range(num_blocks):
+            layers.append(ResidualBlock(channels, channels))
+        return nn.Sequential(*layers)
 
 
 

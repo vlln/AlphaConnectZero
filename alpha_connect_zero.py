@@ -151,17 +151,17 @@ class AlphaConnectZero(MCTS):
         board = torch.tensor(node.state.board, dtype=torch.float32).unsqueeze(0).unsqueeze(0).to(DEVICE)
         with torch.no_grad():
             act_prob, self.value = self.model(board)       # preserve the value for backpropagation
-        act_prob = F.softmax(act_prob, dim=1).detach().squeeze(0)
+        act_prob = F.softmax(act_prob, dim=1).squeeze(0)
         best_move = self.game.action2position(torch.multinomial(act_prob.view(-1), 1).item())
         legal_mask = self.game.get_legal_moves(node.state)
-        act_prob = act_prob.numpy() * legal_mask    # shape: (n, n)
+        act_prob = act_prob.detach().cpu().numpy() * legal_mask    # shape: (n, n)
 
         moves = np.argwhere(act_prob > 0)
         best_node = node
         for move in moves:
             state = self.game.make_move(node.state, move)
             child_node = node.expand(state, move)
-            child_node.p = act_prob[move]
+            child_node.p = act_prob[move[0], move[1]]
             if np.array_equal(best_move, move):
                 best_node = child_node
         return best_node
