@@ -76,8 +76,8 @@ class AlphaConnectZero(MCTS):
             # self play
             self.model.eval()
 
-            # self_play_data = self.self_play(self.self_play_games, enhance=True)
-            self_play_data = self.paralle_self_play(self.self_play_games, enhance=True)
+            self_play_data = self.self_play(self.self_play_games, enhance=True)
+            # self_play_data = self.paralle_self_play(self.self_play_games, enhance=True)
             self.replay_buffer.extend(self_play_data)
 
             # sample from replay buffer
@@ -102,12 +102,24 @@ class AlphaConnectZero(MCTS):
 
                 # evaluate
                 win_rate = self.evaluate()
+                # win_rate = self.paralle_evaluate()
                 logger.info(f"Win rate: {win_rate:.3f}.")
                 if win_rate > 0.5:
                     self.save_model()
                     logger.success("New best model is saved!")
+    
+    def evaluate(self, oponent_num=3, game_num=1, search_iterations=3):
+        win_rate = 0
+        self.iterations = search_iterations     # deduce search time in evaluation
+        # TODO random select oponent  
+        oponent = AlphaConnectZero(self.game, iterations=search_iterations)
+        oponent.load_model()
+        for _ in range(oponent_num):
+            win_rate += play_for_win_rate(self.game, self, oponent, game_num)
+        self.iterations = self.train_search_iterations
+        return win_rate / oponent_num
 
-    def evaluate(self, oponent_num=3, game_num=1, search_iterations=3):  
+    def paralle_evaluate(self, oponent_num=3, game_num=1, search_iterations=3):  
         win_rate = 0  
         self.iterations = search_iterations     # deduce search time in evaluation
         with ProcessPoolExecutor() as executor:  

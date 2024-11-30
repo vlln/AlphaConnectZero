@@ -45,8 +45,8 @@ class ZeroModel(nn.Module):
     def forward(self, x):
         x = self.conv1(x)
         x = self.backbone(x)
-        policy = self.policy_head(self.policy_conv(x).view(x.shape[0], -1))
-        value = self.value_head(self.value_conv(x).view(x.shape[0], -1))
+        policy = self.policy_head(torch.reshape(self.policy_conv(x), (-1, 3 * self.board_size * self.board_size)))
+        value = self.value_head(torch.reshape(self.value_conv(x), (-1, self.board_size * self.board_size)))
         policy = F.softmax(policy, dim=1)
         policy = policy.view(-1, self.board_size, self.board_size)
         return policy, value
