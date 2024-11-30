@@ -72,7 +72,7 @@ class MCTS(SearchTree):
 
     def _get_best_child(self, node: TreeNode) -> TreeNode:  
         def ucb1(child):
-            return child.score / (child.visits + 1) + self.c_puct * math.sqrt(node.visits) / (child.visits + 1)
+            return child.score / (child.visits + 1) + self.c_puct * child.p * math.sqrt(node.visits) / (child.visits + 1)
         best_child = node.children[0]
 
         if self.act_player == node.state.current_player:

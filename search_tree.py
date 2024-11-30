@@ -10,11 +10,12 @@ from connect_game import ConnectGame, GameState
 class TreeNode:  
     def __init__(self, state, move, parent=None):  
         self.state = state
-        self.move = move  # wichch move led to this state
+        self.move = move    # wichch move led to this state
         self.parent = parent  
         self.children = []  
         self.score = 0
         self.visits = 0
+        self.p = 1     # probability
     
     def expand(self, state, move):
         child_class = type(self) 
@@ -119,7 +120,7 @@ class SearchTree:
             if enhance:
                 game_stack = self._enhance_data(game_stack, skip_front=1)
                 collected_data.extend(game_stack)
-        logger.info(f"Self-play finished in {time.time() - start_time:.2f}s.")
+        logger.trace(f"Self-play finished in {time.time() - start_time:.2f}s.")
         return collected_data
 
     def paralle_self_play(self, total_games=1000, enhance=False, processes=10):
