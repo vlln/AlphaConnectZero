@@ -122,6 +122,9 @@ class ConnectGame:
     
     def print_turn(self, state:GameState):
         print(f'Player "{self.symbols[state.current_player]}" turn')
+    
+    def __str__(self):
+        return f'ConnectGame({self.size}, {self.connect_num})'
 
 if __name__ == '__main__':
     pass

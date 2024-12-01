@@ -58,8 +58,6 @@ class ZeroModel(nn.Module):
             layers.append(ResidualBlock(channels, channels))
         return nn.Sequential(*layers)
 
-
-
 #%%
 if __name__ == '__main__':
     data = torch.randn(5, 1, 9, 9)

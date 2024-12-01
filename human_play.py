@@ -6,11 +6,13 @@ from mcts import MCTS
 from minimax import Minimax
 from alpha_connect_zero import AlphaConnectZero
 from search_tree import play_for_win_rate
-from loguru import logger
+from logger_config import logger
 
-logger.level("INFO")
 
 if __name__ == "__main__":  
+    logger.level("INFO")
+    np.set_printoptions(precision=3, suppress=True)
+
     game = ConnectGame(9, 4)
     # game = ConnectGame(3, 3)
 

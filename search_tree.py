@@ -28,7 +28,7 @@ class TreeNode:
 
 class SearchTree:
 
-    def __init__(self, game: ConnectGame):
+    def __init__(self, game: ConnectGame, *args, **kwargs):
         """
         Args:
             game: game object
