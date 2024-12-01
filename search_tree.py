@@ -124,13 +124,14 @@ class SearchTree:
         return collected_data
 
     def paralle_self_play(self, total_games=1000, enhance=False, processes=10):
+        """Parallel self-play using multiprocessing on CPU"""
         games_per_process = total_games // processes
         if total_games < processes:
             processes = total_games
             games_per_process = 1
         results = []
         with ProcessPoolExecutor(max_workers=processes) as executor:  
-            futures = {executor.submit(self.self_play, games_per_process, enhance=True): i for i in range(processes)}  
+            futures = {executor.submit(self.self_play, games_per_process, enhance=enhance): i for i in range(processes)}  
             for future in as_completed(futures):  
                 game_results = future.result()
                 results.extend(game_results)

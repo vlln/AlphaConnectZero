@@ -1,4 +1,5 @@
 #%%
+import os
 import pathlib
 from datetime import datetime
 import time
@@ -8,6 +9,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import torch
 import torch.nn.functional as F
+import torch.distributed as dist  
+import torch.multiprocessing as mp  
 import numpy as np
 from loguru import logger
 
@@ -21,8 +24,10 @@ np.set_printoptions(precision=3, suppress=True)
 try:
     import torch_sdaa
     DEVICE = torch.device('sdaa' if torch.sdaa.is_available() else 'cpu')
+    import torch.sdaa as cuda
 except ImportError:
     DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    import torch.cuda as cuda
 
 logger.success(f'Using device: {DEVICE}')
 
@@ -83,11 +88,12 @@ class AlphaConnectZero(MCTS):
             self.model.eval()
 
             start_time = time.time()
-            self_play_data = self.self_play(self.self_play_games, enhance=True)
             # TODO DEBUG: self play in parallel. Don't use python mp! Use torch mp!
-            # self_play_data = self.paralle_self_play(self.self_play_games, enhance=True)
+            # self_play_data = self.self_play(self.self_play_games, enhance=True)
+            self_play_data = self.paralle_self_play(self.self_play_games, enhance=True)
             logger.info(f"Self play elapsed: {time.time() - start_time: .2f}s.")
             self.replay_buffer.extend(self_play_data)
+            logger.trace(f"Self play data size: [{len(self_play_data)}], replay buffer size: [{len(self.replay_buffer)}].")
 
             # sample from replay buffer
             minibatch = random.sample(self.replay_buffer, self.batch_size)
@@ -120,6 +126,74 @@ class AlphaConnectZero(MCTS):
                     self.save_model()
                     logger.success("New best model is saved!")
         logger.success("Training finished!")
+
+    def _worker(self, games, enhance, queue, rank, world_size):  
+        # Set the environment variables for this process  
+        os.environ['RANK'] = str(rank)  
+        os.environ['WORLD_SIZE'] = str(world_size)  
+        
+        # Initialize the process group  
+        dist.init_process_group(backend='nccl', init_method='env://')  
+        
+        # Call the self_play method, which is defined in the main class  
+        output = self.self_play(games, enhance)  
+        
+        # Put the result in the queue  
+        queue.put(output)  
+
+    def paralle_self_play(self, total_games=1000, enhance=False, processes=10):  
+        """Parallel self play on one GPU."""  
+        games_per_process = total_games // processes  
+        if total_games < processes:  
+            processes = total_games  
+            games_per_process = 1  
+
+        # Set the starting method for multiprocessing  
+        mp.set_start_method('spawn')  
+
+        # Create a queue to store results  
+        queue = mp.Manager().Queue()  
+
+        # Define environment variables for the main process  
+        os.environ['MASTER_ADDR'] = 'localhost'  # or your master node IP  
+        os.environ['MASTER_PORT'] = '12345'       # make sure the port is not in use  
+
+        # Create multiple processes  
+        processes_list = []  
+        for rank in range(processes):  
+            p = mp.Process(target=self._worker, args=(games_per_process, enhance, queue, rank, processes))  
+            p.start()  
+            processes_list.append(p)  
+
+        # Wait for all processes to finish  
+        for p in processes_list:  
+            p.join()  
+
+        # Collect results from the queue  
+        results = []  
+        while not queue.empty():  
+            results.append(queue.get())  
+
+        # Destroy the process group  
+        dist.destroy_process_group()  
+
+        # Return summarized results  
+        return results  
+
+    # def paralle_self_play(self, total_games=1000, enhance=False, processes=10):
+    #     """Parallel self play on one GPU."""
+    #     games_per_process = total_games // processes
+    #     if total_games < processes:
+    #         processes = total_games
+    #         games_per_process = 1
+    #     result = []
+    #     cuda.set_per_process_memory_fraction(1/processes, device=DEVICE)    # 这行是否有必要?
+    #     for _ in range(processes):
+    #         stream = cuda.Stream(device=DEVICE)
+    #         with cuda.stream(stream):
+    #             output = self.self_play(games_per_process, enhance)
+    #             result.extend(output)
+    #     return result
     
     def evaluate(self, oponent_num=3, game_num=1, search_iterations=3):
         # TODO DEGUG evaluate elapsed 0.00s
