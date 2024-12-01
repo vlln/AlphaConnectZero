@@ -20,13 +20,14 @@ class ResidualBlock(nn.Module):
         return out
 
 class ZeroModel(nn.Module):
-    def __init__(self, board_size, in_channels=1):
+    def __init__(self, board_size, in_channels=1, backbone_layers=2):
         super(ZeroModel, self).__init__()
-        # TODO: input a condition vector that represents the current rule of the game. so that the model can learn to play different games
+        # TODO: input a condition vector that represents the current rule of the game. 
+        # so that the model can learn to play different games
 
         self.board_size = board_size
         self.conv1 = nn.Conv2d(in_channels, 128, kernel_size=3, stride=1, padding=1)
-        self.backbone = self._make_leyer(128, 16)
+        self.backbone = self._make_leyer(128, backbone_layers)
 
         self.policy_conv = nn.Conv2d(128, 3, kernel_size=1)
         self.policy_head = nn.Sequential(

@@ -82,8 +82,11 @@ class AlphaConnectZero(MCTS):
             # self play
             self.model.eval()
 
+            start_time = time.time()
             self_play_data = self.self_play(self.self_play_games, enhance=True)
+            # TODO DEBUG: self play in parallel. Don't use python mp! Use torch mp!
             # self_play_data = self.paralle_self_play(self.self_play_games, enhance=True)
+            logger.info(f"Self play elapsed: {time.time() - start_time: .2f}s.")
             self.replay_buffer.extend(self_play_data)
 
             # sample from replay buffer
@@ -95,9 +98,10 @@ class AlphaConnectZero(MCTS):
             self.model.train()
             mean_loss = 0
             for i in range(self.train_steps):
+                logger.trace(f"Epoch [{epoch+1}/{self.train_epochs}], step [{i+1}/{self.train_steps}]")
                 mean_loss += self._train_step(states, act_probs, values)
-            logger.info(f"Epoch [{epoch+1}/{self.train_epochs}], mean loss: [{mean_loss / self.train_steps:.3f}], " + 
-                        f"train elapsed: {time.time() - start_time: .2f}s.")
+            logger.info(f"Epoch [{epoch+1}/{self.train_epochs}], mean loss: [{mean_loss / self.train_steps:.3f}].")
+            logger.info(f"Train elapsed: {time.time() - start_time: .2f}s.")
 
             # evaluate model
             if epoch % 10 == 0:    # evaluate every 10 epochs
@@ -107,14 +111,18 @@ class AlphaConnectZero(MCTS):
                 logger.info(f"The checkpoint for epoch [{epoch+1}] has been saved.")
 
                 # evaluate
+                start_time = time.time()
                 win_rate = self.evaluate()
                 # win_rate = self.paralle_evaluate()
+                logger.info(f"Evaluate elapsed: {time.time() - start_time: .2f}s.")
                 logger.info(f"Win rate: {win_rate:.3f}.")
                 if win_rate > 0.5:
                     self.save_model()
                     logger.success("New best model is saved!")
+        logger.success("Training finished!")
     
     def evaluate(self, oponent_num=3, game_num=1, search_iterations=3):
+        # TODO DEGUG evaluate elapsed 0.00s
         win_rate = 0
         self.iterations = search_iterations     # deduce search time in evaluation
         # TODO random select oponent  
@@ -193,12 +201,12 @@ BATCH_SIZE = 16
 if __name__ == '__main__':
     ...
 #%%
-    logger.add('logs/alpha_connect_zero.log', level='INFO')
+    logger.add('logs/alpha_connect_zero.log', level='TRACE')
     game = ConnectGame(9, 4)
     tree = AlphaConnectZero(
         game, 
-        iterations=1, 
-        train_epochs=1,
+        iterations=3, 
+        train_epochs=2,
         train_steps=4, 
         self_play_games=10,
         replay_buffer_size=REPLAY_BUFFER_SIZE, 
