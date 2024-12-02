@@ -39,13 +39,13 @@ if __name__ == '__main__':
 
     # Prameters
     game = ConnectFour()
-    process_per_device = 4
+    process_per_device = 2
     world_size = device_count * process_per_device
     device_ids = [i for i in range(device_count)] * process_per_device
     # train config
     config = Config(
         game = game,
-        iterations = 100,
+        iterations = 40,
         train_epochs = 100,
         train_steps = 10,
         self_play_games = 100,

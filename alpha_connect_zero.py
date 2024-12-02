@@ -3,6 +3,7 @@ import pathlib
 import time  
 import random  
 from collections import deque  
+from torch import multiprocessing as mp
 import torch  
 import torch.nn.functional as F  
 from torch import distributed as dist
@@ -61,6 +62,8 @@ class AlphaConnectZero(MCTS):
         self.device_id = device_id
         self.rank = rank
 
+        np.random.seed(self.rank)
+        torch.manual_seed(self.rank)
         if self.device_id == -1:
             self.device = torch.device('cpu')
         else:
@@ -79,10 +82,10 @@ class AlphaConnectZero(MCTS):
             self.model.load_state_dict(torch.load(path, weights_only=True))  
         else:
             if self.rank == 0:
-                logger.warning('Best model not found!')  
+                logger.warning(f"rank_{self.rank}: Best model not found!")  
                 self.save_model()  
         self.model.to(self.device)  
-        # self.model = DDP(self.model, device_ids=[self.device_id])
+        self.model = DDP(self.model, device_ids=[self.device_id])
     
     def save_model(self, tag=None):  
         if tag is None:  
@@ -100,9 +103,9 @@ class AlphaConnectZero(MCTS):
             start_time = time.time()  
             # In Connect4, self-play games can be enhance data
             self_play_data = self.self_play(self.self_play_games, enhance=True)  
-            logger.trace(f"Self play elapsed: {time.time() - start_time: .2f}s.")  
+            logger.trace(f"rank_{self.rank}: Self play elapsed: {time.time() - start_time: .2f}s.")  
             self.replay_buffer.extend(self_play_data)  
-            logger.trace(f"Self play data size: [{len(self_play_data)}], replay buffer size: [{len(self.replay_buffer)}].")  
+            logger.trace(f"rank_{self.rank}: Self play data size: [{len(self_play_data)}], replay buffer size: [{len(self.replay_buffer)}].")  
 
             # sample from replay buffer  
             minibatch = random.sample(self.replay_buffer, self.batch_size)  
@@ -113,28 +116,29 @@ class AlphaConnectZero(MCTS):
             self.model.train()  
             mean_loss = 0  
             for i in range(self.train_steps):  
-                logger.trace(f"Epoch [{epoch+1}/{self.train_epochs}], step [{i+1}/{self.train_steps}]")  
+                logger.trace(f"rank_{self.rank}: Epoch [{epoch+1}/{self.train_epochs}], step [{i+1}/{self.train_steps}]")  
                 mean_loss += self._train_step(states, act_probs, values)  
-            logger.trace(f"Train elapsed: {time.time() - start_time: .2f}s.")  
+            logger.trace(f"rank_{self.rank}: Train elapsed: {time.time() - start_time: .2f}s.")  
+
+            logger.info(f"rank_{self.rank}: Epoch [{epoch+1}/{self.train_epochs}], mean loss: [{mean_loss / self.train_steps:.3f}].")  
 
             if self.rank == 0:
-                logger.info(f"Epoch [{epoch+1}/{self.train_epochs}], mean loss: [{mean_loss / self.train_steps:.3f}].")  
 
                 # evaluate model  
                 if epoch % 10 == 0:    # evaluate every 10 epochs  
 
                     # save model  
                     self.save_model(tag=epoch)  
-                    logger.info(f"The checkpoint for epoch [{epoch+1}] has been saved.")  
+                    logger.info(f"rank_{self.rank}: The checkpoint for epoch [{epoch+1}] has been saved.")  
 
                     # evaluate  
                     start_time = time.time()  
                     win_rate = self.evaluate()  
-                    logger.info(f"Evaluate elapsed: {time.time() - start_time: .2f}s.")  
-                    logger.info(f"Win rate: {win_rate:.3f}.")  
+                    logger.info(f"rank_{self.rank}: Evaluate elapsed: {time.time() - start_time: .2f}s.")  
+                    logger.info(f"rank_{self.rank}: Win rate: {win_rate:.3f}.")  
                     if win_rate > 0.5:  
                         self.save_model()  
-                        logger.success("New best model is saved!")  
+                        logger.success(f"rank_{self.rank}: New best model is saved!")  
 
     def evaluate(self, oponent_num=3, game_num=1, search_iterations=3):  
         win_rate = 0  
@@ -159,31 +163,31 @@ class AlphaConnectZero(MCTS):
         values = torch.tensor(np.stack(values), dtype=torch.float32).to(self.device)  
         return states, act_probs, values  
 
-    def _train_step(self, state_batch, action_batch, value_batch):
-        dist.barrier()
-        pred_act, pred_value = self.model(state_batch)
-        loss_policy = F.kl_div(torch.log(pred_act), action_batch, reduction='batchmean')
-        loss_value = F.mse_loss(pred_value, value_batch)
-        loss = loss_policy + loss_value
-        self.optimizer.zero_grad()
-        loss.backward()     # backward before all_reduce, otherwise the gradients will not be autogradiented
-        dist.all_reduce(loss, op=dist.ReduceOp.SUM) 
-        loss /= dist.get_world_size()
-        for param in self.model.parameters():
-            dist.all_reduce(param.grad.data, op=dist.ReduceOp.SUM)  
-            param.grad.data /= dist.get_world_size()
-        self.optimizer.step()
-        return loss.item()
-    
     # def _train_step(self, state_batch, action_batch, value_batch):
-    #     self.optimizer.zero_grad()
+    #     dist.barrier()
     #     pred_act, pred_value = self.model(state_batch)
     #     loss_policy = F.kl_div(torch.log(pred_act), action_batch, reduction='batchmean')
     #     loss_value = F.mse_loss(pred_value, value_batch)
     #     loss = loss_policy + loss_value
+    #     self.optimizer.zero_grad()
     #     loss.backward()     # backward before all_reduce, otherwise the gradients will not be autogradiented
+    #     dist.all_reduce(loss, op=dist.ReduceOp.SUM) 
+    #     loss /= dist.get_world_size()
+    #     for param in self.model.parameters():
+    #         dist.all_reduce(param.grad.data, op=dist.ReduceOp.SUM)  
+    #         param.grad.data /= dist.get_world_size()
     #     self.optimizer.step()
     #     return loss.item()
+    
+    def _train_step(self, state_batch, action_batch, value_batch):
+        self.optimizer.zero_grad()
+        pred_act, pred_value = self.model(state_batch)
+        loss_policy = F.kl_div(torch.log(pred_act), action_batch, reduction='batchmean')
+        loss_value = F.mse_loss(pred_value, value_batch)
+        loss = loss_policy + loss_value
+        loss.backward()     # backward before all_reduce, otherwise the gradients will not be autogradiented
+        self.optimizer.step()
+        return loss.item()
 
     def _expand(self, node):
         if self.game.is_over(node.state):
@@ -229,4 +233,3 @@ if __name__ == '__main__':
     )
     tree = AlphaConnectZero(**config.args)
     tree.train()
-
