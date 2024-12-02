@@ -58,8 +58,8 @@ if __name__ == '__main__':
     config = Config(
         game = game,
         iterations = 3,
-        train_epochs = 4, 
-        train_steps = 4,
+        train_epochs = 40, 
+        train_steps = 10,
         self_play_games = 10,
         lr = 0.001, 
         replay_buffer_size = 100000,

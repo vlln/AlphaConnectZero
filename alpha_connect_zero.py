@@ -5,6 +5,7 @@ import random
 from collections import deque  
 import torch  
 import torch.nn.functional as F  
+from torch import distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 import numpy as np  
 from loguru import logger  
@@ -49,8 +50,9 @@ class AlphaConnectZero(MCTS):
             save_dir: directory to save model  
         """  
         super().__init__(*args, **kwargs)  
-        self.save_dir = pathlib.Path(save_dir) / str(self.game)
-        self.save_dir.mkdir(parents=True, exist_ok=True)  
+        self.save_dir = pathlib.Path(save_dir)
+        self.model_save_dir = self.save_dir / str(self.game)
+        self.model_save_dir.mkdir(parents=True, exist_ok=True)  
         self.train_epochs = train_epochs  
         self.train_steps = train_steps  
         self.train_search_iterations = self.iterations  
@@ -72,20 +74,21 @@ class AlphaConnectZero(MCTS):
     
     def load_model(self, path=None):  
         if path is None:    # load best model  
-            path = self.save_dir / 'model_best.pth'  
+            path = self.model_save_dir / 'model_best.pth'  
         if path.exists():  
             self.model.load_state_dict(torch.load(path, weights_only=True))  
         else:
-            logger.warning('Best model not found!')  
-            self.save_model()  
+            if self.rank == 0:
+                logger.warning('Best model not found!')  
+                self.save_model()  
         self.model.to(self.device)  
         # self.model = DDP(self.model, device_ids=[self.device_id])
     
     def save_model(self, tag=None):  
         if tag is None:  
-            path = self.save_dir / 'model_best.pth'  
+            path = self.model_save_dir / 'model_best.pth'  
         else:  
-            path = self.save_dir / f'model_{str(tag)}.pth'  
+            path = self.model_save_dir / f'model_{str(tag)}.pth'  
         torch.save(self.model.state_dict(), path)  
     
     def train(self):  
@@ -96,7 +99,7 @@ class AlphaConnectZero(MCTS):
 
             start_time = time.time()  
             # In Connect4, self-play games can be enhance data
-            self_play_data = self.self_play(self.self_play_games, enhance=False)  
+            self_play_data = self.self_play(self.self_play_games, enhance=True)  
             logger.trace(f"Self play elapsed: {time.time() - start_time: .2f}s.")  
             self.replay_buffer.extend(self_play_data)  
             logger.trace(f"Self play data size: [{len(self_play_data)}], replay buffer size: [{len(self.replay_buffer)}].")  
@@ -156,31 +159,31 @@ class AlphaConnectZero(MCTS):
         values = torch.tensor(np.stack(values), dtype=torch.float32).to(self.device)  
         return states, act_probs, values  
 
-    # def _train_step(self, state_batch, action_batch, value_batch):
-    #     dist.barrier()
-    #     pred_act, pred_value = self.model(state_batch)
-    #     loss_policy = F.kl_div(torch.log(pred_act), action_batch, reduction='batchmean')
-    #     loss_value = F.mse_loss(pred_value, value_batch)
-    #     loss = loss_policy + loss_value
-    #     self.optimizer.zero_grad()
-    #     loss.backward()     # backward before all_reduce, otherwise the gradients will not be autogradiented
-    #     dist.all_reduce(loss, op=dist.ReduceOp.SUM) 
-    #     loss /= dist.get_world_size()
-    #     for param in self.model.parameters():
-    #         dist.all_reduce(param.grad.data, op=dist.ReduceOp.SUM)  
-    #         param.grad.data /= dist.get_world_size()
-    #     self.optimizer.step()
-    #     return loss.item()
-    
     def _train_step(self, state_batch, action_batch, value_batch):
-        self.optimizer.zero_grad()
+        dist.barrier()
         pred_act, pred_value = self.model(state_batch)
         loss_policy = F.kl_div(torch.log(pred_act), action_batch, reduction='batchmean')
         loss_value = F.mse_loss(pred_value, value_batch)
         loss = loss_policy + loss_value
+        self.optimizer.zero_grad()
         loss.backward()     # backward before all_reduce, otherwise the gradients will not be autogradiented
+        dist.all_reduce(loss, op=dist.ReduceOp.SUM) 
+        loss /= dist.get_world_size()
+        for param in self.model.parameters():
+            dist.all_reduce(param.grad.data, op=dist.ReduceOp.SUM)  
+            param.grad.data /= dist.get_world_size()
         self.optimizer.step()
         return loss.item()
+    
+    # def _train_step(self, state_batch, action_batch, value_batch):
+    #     self.optimizer.zero_grad()
+    #     pred_act, pred_value = self.model(state_batch)
+    #     loss_policy = F.kl_div(torch.log(pred_act), action_batch, reduction='batchmean')
+    #     loss_value = F.mse_loss(pred_value, value_batch)
+    #     loss = loss_policy + loss_value
+    #     loss.backward()     # backward before all_reduce, otherwise the gradients will not be autogradiented
+    #     self.optimizer.step()
+    #     return loss.item()
 
     def _expand(self, node):
         if self.game.is_over(node.state):
