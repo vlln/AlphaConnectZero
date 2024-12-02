@@ -11,7 +11,7 @@ except ImportError:
 from datetime import datetime
 from loguru import logger
 from alpha_connect_zero import AlphaConnectZero, Config
-from connect_game import ConnectGame
+from connect_game import ConnectGame, ConnectFour
 
 def init_process(rank, backend, world_size, device_ids, log_filename, config:Config):  
     os.environ['MASTER_ADDR'] = 'localhost'  
@@ -38,24 +38,25 @@ if __name__ == '__main__':
     device_count = torch.cuda.device_count()
 
     # Prameters
+    game = ConnectFour()
     process_per_device = 4
     world_size = device_count * process_per_device
     device_ids = [i for i in range(device_count)] * process_per_device
     # train config
     config = Config(
-        game = ConnectGame(9, 4),
+        game = game,
         iterations = 100,
         train_epochs = 100,
-        train_steps = 100,
+        train_steps = 10,
         self_play_games = 10,
         lr = 0.0001,
         replay_buffer_size = 100000,
-        batch_size = 1024,
+        batch_size = 4096,
         save_dir = './checkpoints'
     )
     # test mini size
     config = Config(
-        game = ConnectGame(9, 4), 
+        game = game,
         iterations = 3,
         train_epochs = 4, 
         train_steps = 4,

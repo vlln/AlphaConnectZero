@@ -9,8 +9,12 @@ class Minimax(SearchTree):
         super().search(*args, **kwargs)
         self.count = 0  
         move, value = self._search(self.root, True, float('-inf'), float('inf'))  
-        act_prob = np.zeros((self.game.size, self.game.size))
-        act_prob[move[0], move[1]] = 1
+        moves = np.array([child.move for child in self.root.children])
+        move_prob = np.zeros((moves.shape[0]))
+        move_prob[np.where(moves == move)[0][0]] = 1
+        act_prob = self.game.get_act_prob(moves, move_prob)
+        # act_prob = np.zeros((self.game.size, self.game.size))
+        # act_prob[move[0], move[1]] = 1
         logger.debug(f"Number of nodes visited: {self.count}")  
         return move, act_prob
     

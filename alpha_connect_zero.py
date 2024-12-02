@@ -18,7 +18,7 @@ except ImportError:
 from mcts import MCTS  
 from model import ZeroModel  
 from search_tree import play_for_win_rate  
-from connect_game import ConnectGame
+from connect_game import ConnectGame, ConnectFour
 
 class Config(object):
     def __init__(self, **kwargs):
@@ -49,7 +49,7 @@ class AlphaConnectZero(MCTS):
             save_dir: directory to save model  
         """  
         super().__init__(*args, **kwargs)  
-        self.save_dir = pathlib.Path(save_dir)  
+        self.save_dir = pathlib.Path(save_dir) / str(self.game)
         self.save_dir.mkdir(parents=True, exist_ok=True)  
         self.train_epochs = train_epochs  
         self.train_steps = train_steps  
@@ -59,18 +59,16 @@ class AlphaConnectZero(MCTS):
         self.device_id = device_id
         self.rank = rank
 
-        self.model = ZeroModel(self.game.size)  
+        if self.device_id == -1:
+            self.device = torch.device('cpu')
+        else:
+            self.device = torch.device(f'{DEVICE_TYPE}:{self.device_id}')
+
+        self.model = ZeroModel(self.game.size, self.game.action_shape, 1)
         self.load_model()  
         self.model.eval()  
         self.replay_buffer = deque(maxlen=int(replay_buffer_size))  
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)  
-    
-    @property
-    def device(self):
-        if self.device_id == -1:
-            return torch.device('cpu')
-        else:
-            return torch.device(f'{DEVICE_TYPE}:{self.device_id}')
     
     def load_model(self, path=None):  
         if path is None:    # load best model  
@@ -97,7 +95,8 @@ class AlphaConnectZero(MCTS):
             self.model.eval()  
 
             start_time = time.time()  
-            self_play_data = self.self_play(self.self_play_games, enhance=True)  
+            # In Connect4, self-play games can be enhance data
+            self_play_data = self.self_play(self.self_play_games, enhance=False)  
             logger.trace(f"Self play elapsed: {time.time() - start_time: .2f}s.")  
             self.replay_buffer.extend(self_play_data)  
             logger.trace(f"Self play data size: [{len(self_play_data)}], replay buffer size: [{len(self.replay_buffer)}].")  
@@ -189,17 +188,19 @@ class AlphaConnectZero(MCTS):
         board = torch.tensor(node.state.board, dtype=torch.float32).unsqueeze(0).unsqueeze(0).to(self.device)
         with torch.no_grad():
             act_prob, self.value = self.model(board)       # preserve the value for backpropagation
-        act_prob = F.softmax(act_prob, dim=1).squeeze(0)
-        best_move = self.game.action2position(torch.multinomial(act_prob.view(-1), 1).item())
-        legal_mask = self.game.get_legal_moves(node.state)
-        act_prob = act_prob.detach().cpu().numpy() * legal_mask    # shape: (n, n)
+        legal_mask = torch.tensor(self.game.get_legal_moves(node.state)).to(self.device)
+        act_prob = act_prob.squeeze(0) * legal_mask
+        best_act = torch.multinomial(act_prob.view(-1), 1).item()
+        possible_moves = np.argwhere(np.ones(legal_mask.shape, dtype=int))
+        best_move = possible_moves[best_act]
+        act_prob = np.reshape(act_prob.detach().cpu().numpy(), -1)
+        moves = possible_moves[act_prob > 0].squeeze()
 
-        moves = np.argwhere(act_prob > 0)
         best_node = node
-        for move in moves:
+        for i, move in enumerate(moves):
             state = self.game.make_move(node.state, move)
             child_node = node.expand(state, move)
-            child_node.p = act_prob[move[0], move[1]]
+            child_node.p = act_prob[i]
             if np.array_equal(best_move, move):
                 best_node = child_node
         return best_node
@@ -210,7 +211,8 @@ class AlphaConnectZero(MCTS):
 if __name__ == '__main__':
     logger.add("./logs/test_train.log", level="TRACE")
     config = Config(
-        game=ConnectGame(9, 4),
+        # game=ConnectGame(9, 4),
+        game = ConnectFour(),
         iterations=3,
         train_epochs=2,
         train_steps=10,

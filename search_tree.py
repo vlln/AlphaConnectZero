@@ -74,15 +74,16 @@ class SearchTree:
         maxmize = False
         if act_player == 'X':
             maxmize = True
+            start_time = time.time()
             best_move, act_prob = self.search(state, maxmize)
+            logger.info(f"Search time: {time.time() - start_time}")
             state = self.game.make_move(state, best_move)
 
         while not self.game.is_over(state):
             # human player
             self.game.print_state(state)
             self.game.print_turn(state)
-            move = input("Enter your move (row col): ").split()
-            move = (int(move[0]), int(move[1]))
+            move = self.game.input_move(state)
             state = self.game.make_move(state, move)
             print("-" * 30)
             if self.game.is_over(state):

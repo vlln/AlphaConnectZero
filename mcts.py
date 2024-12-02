@@ -6,7 +6,7 @@ import numpy as np
 
 class MCTS(SearchTree):  
 
-    def __init__(self, *args, c_puc=50, iterations=1000, **kwargs):
+    def __init__(self, *args, c_puc=5, iterations=1000, **kwargs):
         """
         Initialize the MCTS class with the given parameters.
         Args:
@@ -32,12 +32,13 @@ class MCTS(SearchTree):
         # compute move probabilities
         act_score = np.array([child.score / (child.visits + 1) for child in self.root.children])
         moves = np.array([child.move for child in self.root.children])
-        act_prob = np.zeros(self.game.board_size, dtype=np.float32)
+        # act_prob = np.zeros(self.game.board_size, dtype=np.float32)
         exp_x = np.exp(act_score - np.max(act_score))   # for safe softmax
         move_prob = exp_x / np.sum(exp_x)
-        act_prob [moves[:, 0], moves[:, 1]] = move_prob    # shape: (board_rows, board_cols)
+        # act_prob [moves[:, 0], moves[:, 1]] = move_prob    # shape: (board_rows, board_cols)
         best_move = moves[np.argmax(act_score)]
-        return best_move, act_prob
+        move_prob = self.game.get_act_prob(moves, move_prob)
+        return best_move, move_prob
 
     def _select_child(self, node: TreeNode) -> TreeNode:  
         """Select a leaf node"""
@@ -74,6 +75,8 @@ class MCTS(SearchTree):
         def ucb1(child):
             return child.score / (child.visits + 1) + self.c_puct * child.p * math.sqrt(node.visits) / (child.visits + 1)
         best_child = node.children[0]
+
+        # best_child = max(node.children, key=ucb1)
 
         if self.act_player == node.state.current_player:
             best_child = max(node.children, key=ucb1)

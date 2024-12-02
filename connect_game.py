@@ -19,6 +19,8 @@ class ConnectGame:
         self.size = size
         self.connect_num = connect_num
         self.symbols = {1: 'X', -1: 'O', 0: '_'}    # 'X' first player, 'O' second player
+        self.action_shape = (size, size)
+        self.name = 'connect_game'
     
     @property
     def board_size(self):
@@ -68,7 +70,7 @@ class ConnectGame:
                     y += direction * dy  
                     if count >= self.connect_num:  
                         return True  
-        return False   
+        return False  
     
     def get_legal_moves(self, state:GameState) -> np.ndarray:
         """
@@ -84,6 +86,11 @@ class ConnectGame:
         """
         # TODO consider symmetry of the board to reduce search space
         return np.concatenate([np.where(state.board == 0)], axis=1).T
+    
+    def get_act_prob(self, moves, move_prob):
+        act_prob = np.zeros(self.board_size, dtype=np.float32)
+        act_prob [moves[:, 0], moves[:, 1]] = move_prob    # shape: (board_rows, board_cols)
+        return act_prob
 
     def get_reward(self, state:GameState) -> int:
         # return state.winner * (self.get_possible_moves(state).shape[0] + 1)
@@ -123,19 +130,72 @@ class ConnectGame:
     def print_turn(self, state:GameState):
         print(f'Player "{self.symbols[state.current_player]}" turn')
     
+    def input_move(self, state:GameState):
+        str_input = input("Enter your move (row col): ").split()
+        move = np.array((int(str_input[0]), int(str_input[1])))
+        return move
+    
     def __str__(self):
-        return f'ConnectGame({self.size}, {self.connect_num})'
+        return self.name + f'_{self.size}x{self.size}_{self.connect_num}'
+
+class ConnectFour(ConnectGame):
+    def __init__(self):
+        super().__init__(9, 4)
+        self.action_shape = (1, self.size)
+        self.name = 'connect_four'
+
+    def make_move(self, state: GameState, col):
+        """Move is a column number(int)"""
+        # col = int(col)
+        arr = state.board[:, col]
+        row = (arr == 0)[::-1].argmax()  
+        row = len(arr) - 1 - row
+        move = np.array((row, col))
+        return super().make_move(state, move)
+    
+    # def make_move(self, state: GameState, col):
+    #     """Move is a column number(int)"""
+    #     arr = state.board[:,col]
+    #     row = (arr == 0)[::-1].argmax()  
+    #     row = len(arr) - 1 - row
+    #     move = np.array((row, col))
+    #     return super().make_move(state, move)
+    
+    def get_legal_moves(self, state):
+        return np.any(state.board == 0, axis=0)
+    
+    def get_possible_moves(self, state):
+        return np.where(np.any(state.board == 0, axis=0))[0]
+    
+    def get_act_prob(self, moves, move_prob):
+        act_prob = np.zeros(self.size, dtype=np.float32)
+        act_prob[moves] = move_prob
+        return act_prob
+
+    def input_move(self, state:GameState):
+        str_input = input("Enter your move (col): ")
+        move = int(str_input)
+        return move
+
+class Gomoku(ConnectGame):
+    def __init__(self):
+        super().__init__(15, 5)
+        self.name = 'gomoku'
+
+class TicTacToe(ConnectGame):
+    def __init__(self):
+        super().__init__(3, 3)
+        self.name = 'tic_tac_toe'
 
 if __name__ == '__main__':
     pass
     #%%
-    game = ConnectGame(3, 3)
+    game = ConnectFour()
     state = game.reset()
     game.print_state(state)
     while not game.is_over(state):
         game.print_turn(state)
-        move = input("Enter your move (row col): ").split()
-        move = (int(move[0]), int(move[1]))
+        move = game.input_move(state)
         state = game.make_move(state, move)
         game.print_state(state)
     print(f'Player {game.symbols[state.winner]} wins')
