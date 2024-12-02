@@ -16,12 +16,12 @@ if __name__ == "__main__":
     game = ConnectFour()
     # game = ConnectGame(9, 4)
 
-    tree = AlphaConnectZero(game)
+    # tree = AlphaConnectZero(game)
     
-    # tree = MCTS(game, iterations=10)
+    tree = MCTS(game, iterations=10)
     # tree = Minimax(game)
     # tree.play('O')
-    tree.play('X')
+    # tree.play('X')
     start_time = datetime.now()
 
     # win_rate = play_for_win_rate(game, tree, tree, 2)
@@ -29,7 +29,8 @@ if __name__ == "__main__":
     # zero_tree = AlphaConnectZero(game, iterations=5)
     # win_rate = play_for_win_rate(game, zero_tree, tree, 2)
     # print(f"Win rate: {win_rate}")
-    tree.self_play(2, enhance=True)
+    data = tree.self_play(2, enhance=True)
+    print(data)
     # tree.paralle_self_play(10)
     print(f"Time taken: {datetime.now() - start_time}")
     

@@ -194,7 +194,7 @@ class AlphaConnectZero(MCTS):
         possible_moves = np.argwhere(np.ones(legal_mask.shape, dtype=int))
         best_move = possible_moves[best_act]
         act_prob = np.reshape(act_prob.detach().cpu().numpy(), -1)
-        moves = possible_moves[act_prob > 0].squeeze()
+        moves = possible_moves[act_prob > 0].reshape(-1)
 
         best_node = node
         for i, move in enumerate(moves):

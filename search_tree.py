@@ -119,7 +119,7 @@ class SearchTree:
             collected_data.extend(game_stack)
             # enhance data
             if enhance:
-                game_stack = self._enhance_data(game_stack, skip_front=1)
+                game_stack = self.game.enhance_data(game_stack)
                 collected_data.extend(game_stack)
         logger.trace(f"Self-play finished in {time.time() - start_time:.2f}s.")
         return collected_data
@@ -137,30 +137,6 @@ class SearchTree:
                 game_results = future.result()
                 results.extend(game_results)
         return results
-
-    def _enhance_data(self, batch_data, skip_front=0):
-        """Based on the 8 symmetries of the game board that is a square
-        Args:
-            batch_data (list): list of tuples (state, act_prob, reward)
-            skip_front (int): number of states to skip from the front of the batch
-        Returns:
-            enhanced_data (list): list of tuples (state, act_prob, reward).
-                Does not include the original batch_data
-        """
-        enhanced_data = []
-        for n in range(skip_front, len(batch_data)):
-            state, act_prob, reward = batch_data[n]
-            state_t = np.transpose(state, axes=(0, 2, 1))
-            act_prob_t = np.transpose(act_prob, axes=(1, 0))
-            enhanced_data.append((state_t, act_prob_t, reward))
-            for r in range(3):
-                state = np.rot90(state, axes=(2, 1))
-                act_prob = np.rot90(act_prob)
-                enhanced_data.append((state, act_prob, reward))
-                state = np.transpose(state, axes=(0, 2, 1))
-                act_prob = np.transpose(act_prob, axes=(1, 0))
-                enhanced_data.append((state, act_prob, reward))
-        return enhanced_data
 
     def _transform_data(self, states, act_probs, current_players, reward):
         players = np.array(current_players)[:, None]   # (n, 1)

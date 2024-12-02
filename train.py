@@ -48,7 +48,7 @@ if __name__ == '__main__':
         iterations = 100,
         train_epochs = 100,
         train_steps = 10,
-        self_play_games = 10,
+        self_play_games = 100,
         lr = 0.0001,
         replay_buffer_size = 100000,
         batch_size = 4096,
