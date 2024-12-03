@@ -127,19 +127,26 @@ class AlphaConnectZero(MCTS):
                 mean_loss += self._train_step(states, act_probs, values)  
             logger.trace(f"rank_{self.rank}: Train elapsed: {time.time() - start_time: .2f}s.")  
 
-            logger.info(f"rank_{self.rank}: Epoch [{epoch+1}/{self.train_epochs}], mean loss: [{mean_loss / self.train_steps:.3f}].")  
+            logger.trace(f"rank_{self.rank}: Epoch [{epoch+1}/{self.train_epochs}], mean loss: [{mean_loss / self.train_steps:.3f}].")  
 
+            # save epoch model  
             if epoch % 1 == 0 and self.rank == 0:
-                # save model  
                 self.save_model(tag=epoch)  
                 logger.info(f"rank_{self.rank}: The checkpoint for epoch [{epoch+1}] has been saved.")  
             
-                # evaluate  
+            # evaluate  
+            if epoch % 1 == 0:
                 start_time = time.time()  
                 win_rate = self.evaluate()  
-                logger.info(f"rank_{self.rank}: Evaluate elapsed: {time.time() - start_time: .2f}s.")  
-                logger.info(f"rank_{self.rank}: Win rate: {win_rate:.3f}.")  
-                if win_rate > 0.5:  
+                logger.trace(f"rank_{self.rank}: Evaluate elapsed: {time.time() - start_time: .2f}s.")  
+
+                # Using [reduce] method to get the average win rate
+                win_rate = torch.tensor(win_rate, device=self.device, dtype=torch.float32)
+                dist.all_reduce(win_rate, op=dist.ReduceOp.SUM)  
+                win_rate /= dist.get_world_size()
+                dist.barrier()
+                if self.rank == 0 and win_rate > 0.5:  
+                    logger.info(f"rank_{self.rank}: Win rate: {win_rate:.3f}.")  
                     self.save_model()
                     logger.success(f"rank_{self.rank}: New best model is saved!")  
 
