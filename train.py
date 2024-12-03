@@ -17,6 +17,7 @@ def init_process(rank, backend, world_size, device_ids, log_filename, config:Con
     os.environ['MASTER_ADDR'] = 'localhost'  
     os.environ['MASTER_PORT'] = '12317'
     logger.add(log_filename, level='TRACE', enqueue=True)
+    torch.cuda.set_device(device_ids[rank])     # if not set, may cause sdaa error
     dist.init_process_group(backend=backend, world_size=world_size, rank=rank)
     tree = AlphaConnectZero(**config.args, rank=rank, device_id=device_ids[rank])
     logger.success(f"Process [{rank}] is initialized.")
@@ -35,11 +36,12 @@ if __name__ == '__main__':
         backend = 'gloo'
     else:
         raise RuntimeError("No available backend.")
-    device_count = torch.cuda.device_count()
+    backend = 'tccl'    # for sdaa
 
     # Prameters
+    device_count = torch.cuda.device_count()
     game = ConnectFour()
-    process_per_device = 2
+    process_per_device = 1
     world_size = device_count * process_per_device
     device_ids = [i for i in range(device_count)] * process_per_device
     # train config

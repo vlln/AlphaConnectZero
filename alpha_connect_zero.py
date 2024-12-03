@@ -64,7 +64,7 @@ class AlphaConnectZero(MCTS):
         self.rank = rank
 
         np.random.seed(self.rank)
-        torch.manual_seed(self.rank)
+        # torch.manual_seed(self.rank)  # may cause sdaa error
         if self.device_id == -1:
             # self.device = torch.device('cpu')
             logger.error('CPU training is not supported yet!')
@@ -143,33 +143,34 @@ class AlphaConnectZero(MCTS):
                 logger.trace(f"rank_{self.rank}: Evaluate elapsed: {time.time() - start_time: .2f}s.")
 
                 """Using [gather] method"""
-                win_rate = torch.tensor(win_rate, device=self.device, dtype=torch.float32)
-                gathered_win_rates = [torch.zeros_like(win_rate) for _ in range(dist.get_world_size())]
-                dist.all_gather(gathered_win_rates, win_rate)  # 收集所有进程的 win_rate
-                average_win_rate = torch.mean(torch.stack(gathered_win_rates))
-                dist.barrier()
-                if self.rank == 0 and average_win_rate > 0.5:  
-                    logger.info(f"rank_{self.rank}: Win rate: {average_win_rate:.3f}.")  
-                    self.save_model()
-                    logger.success(f"rank_{self.rank}: New best model is saved!")
+                # win_rate = torch.tensor(win_rate, device=self.device, dtype=torch.float32)
+                # gathered_win_rates = [torch.zeros_like(win_rate) for _ in range(dist.get_world_size())]
+                # dist.all_gather(gathered_win_rates, win_rate)  # 收集所有进程的 win_rate
+                # average_win_rate = torch.mean(torch.stack(gathered_win_rates))
+                # dist.barrier()
+                # if self.rank == 0 and average_win_rate > 0.5:  
+                #     logger.info(f"rank_{self.rank}: Win rate: {average_win_rate:.3f}.")  
+                #     self.save_model()
+                #     logger.success(f"rank_{self.rank}: New best model is saved!")
 
 
                 """Using [reduce] method to get the average win rate"""
-                # win_rate = torch.tensor(win_rate, device=self.device, dtype=torch.float32)
-                # dist.all_reduce(win_rate, op=dist.ReduceOp.SUM)  
-                # win_rate /= dist.get_world_size()
-                # dist.barrier()
-                # if self.rank == 0 and win_rate > 0.5:  
-                #     logger.info(f"rank_{self.rank}: Win rate: {win_rate:.3f}.")  
-                #     self.save_model()
-                #     logger.success(f"rank_{self.rank}: New best model is saved!")  
+                win_rate = torch.tensor(win_rate, device=self.device, dtype=torch.float32)
+                dist.all_reduce(win_rate, op=dist.ReduceOp.SUM)  
+                win_rate /= dist.get_world_size()
+                dist.barrier()
+                if self.rank == 0 and win_rate > 0.5:  
+                    logger.info(f"rank_{self.rank}: Win rate: {win_rate:.3f}.")  
+                    self.save_model()
+                    logger.success(f"rank_{self.rank}: New best model is saved!")  
 
     def evaluate(self, oponent_num=3, game_num=1, search_iterations=3):  
         win_rate = 0  
         self.iterations = search_iterations     # for deduce search time in evaluation  
 
         # TODO random select oponent  
-        oponent = copy.deepcopy(self)
+        # oponent = copy.deepcopy(self)     # may crash sdaa bug
+        oponent = AlphaConnectZero(**self.__dict__)
         oponent.model = ZeroModel(self.game.size, self.game.action_shape, 1)
         oponent.model.load_state_dict(torch.load(self.model_save_dir / 'model_best.pth', weights_only=True))  
         oponent.model.to(self.device)
@@ -182,8 +183,12 @@ class AlphaConnectZero(MCTS):
 
         for _ in range(oponent_num):  
             win_rate += play_for_win_rate(self.game, self, oponent, game_num)  
+
         self.iterations = self.train_search_iterations  
+
+        """Using [DDP] method need"""
         # self.model = self.ddp_model
+
         return win_rate / oponent_num  
    
     def _array2tensor(self, batch_data):  
@@ -198,40 +203,40 @@ class AlphaConnectZero(MCTS):
         return states, act_probs, values  
     
     """Using [gather] method"""
-    def _train_step(self, state_batch, action_batch, value_batch):
-        pred_act, pred_value = self.model(state_batch)
-        loss_policy = F.kl_div(torch.log(pred_act), action_batch, reduction='batchmean')
-        loss_value = F.mse_loss(pred_value, value_batch)
-        loss = loss_policy + loss_value
-        loss = loss.unsqueeze(0)
-        self.optimizer.zero_grad()
-        loss.backward()  # Compute gradients
-        for param in self.model.parameters():
-            gathered_grads = [torch.zeros_like(param.grad.data) for _ in range(dist.get_world_size())]
-            dist.all_gather(gathered_grads, param.grad.data)  # Gather gradients from all processes
-            param.grad.data = torch.mean(torch.stack(gathered_grads), dim=0)  # Average gradients
-        self.optimizer.step()
-        gathered_losses = [torch.zeros_like(loss) for _ in range(dist.get_world_size())]
-        dist.all_gather(gathered_losses, loss)  # Gather losses from all processes
-        loss = torch.mean(torch.stack(gathered_losses))  # Average loss
-        return loss.item()
-
-    """Using [reduce] method"""
     # def _train_step(self, state_batch, action_batch, value_batch):
-    #     dist.barrier()
     #     pred_act, pred_value = self.model(state_batch)
     #     loss_policy = F.kl_div(torch.log(pred_act), action_batch, reduction='batchmean')
     #     loss_value = F.mse_loss(pred_value, value_batch)
     #     loss = loss_policy + loss_value
+    #     loss = loss.unsqueeze(0)
     #     self.optimizer.zero_grad()
-    #     loss.backward()     # backward before all_reduce, otherwise the gradients will not be autogradiented
-    #     dist.all_reduce(loss, op=dist.ReduceOp.SUM) 
-    #     loss /= dist.get_world_size()
+    #     loss.backward()  # Compute gradients
     #     for param in self.model.parameters():
-    #         dist.all_reduce(param.grad.data, op=dist.ReduceOp.SUM)  
-    #         param.grad.data /= dist.get_world_size()
+    #         gathered_grads = [torch.zeros_like(param.grad.data) for _ in range(dist.get_world_size())]
+    #         dist.all_gather(gathered_grads, param.grad.data)  # Gather gradients from all processes
+    #         param.grad.data = torch.mean(torch.stack(gathered_grads), dim=0)  # Average gradients
     #     self.optimizer.step()
+    #     gathered_losses = [torch.zeros_like(loss) for _ in range(dist.get_world_size())]
+    #     dist.all_gather(gathered_losses, loss)  # Gather losses from all processes
+    #     loss = torch.mean(torch.stack(gathered_losses))  # Average loss
     #     return loss.item()
+
+    """Using [reduce] method"""
+    def _train_step(self, state_batch, action_batch, value_batch):
+        dist.barrier()
+        pred_act, pred_value = self.model(state_batch)
+        loss_policy = F.kl_div(torch.log(pred_act), action_batch, reduction='batchmean')
+        loss_value = F.mse_loss(pred_value, value_batch)
+        loss = loss_policy + loss_value
+        self.optimizer.zero_grad()
+        loss.backward()     # backward before all_reduce, otherwise the gradients will not be autogradiented
+        dist.all_reduce(loss, op=dist.ReduceOp.SUM) 
+        loss /= dist.get_world_size()
+        for param in self.model.parameters():
+            dist.all_reduce(param.grad.data, op=dist.ReduceOp.SUM)  
+            param.grad.data /= dist.get_world_size()
+        self.optimizer.step()
+        return loss.item()
     
     """Using [DDP] method"""
     # def _train_step(self, state_batch, action_batch, value_batch):
