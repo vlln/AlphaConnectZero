@@ -1,4 +1,5 @@
 import os  
+import copy
 import pathlib  
 import time  
 import random  
@@ -65,7 +66,9 @@ class AlphaConnectZero(MCTS):
         np.random.seed(self.rank)
         torch.manual_seed(self.rank)
         if self.device_id == -1:
-            self.device = torch.device('cpu')
+            # self.device = torch.device('cpu')
+            logger.error('CPU training is not supported yet!')
+            raise NotImplementedError
         else:
             self.device = torch.device(f'{DEVICE_TYPE}:{self.device_id}')
 
@@ -74,34 +77,38 @@ class AlphaConnectZero(MCTS):
         self.model.eval()  
         self.replay_buffer = deque(maxlen=int(replay_buffer_size))  
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)  
-    
+
     def load_model(self, path=None):  
-        if path is None:    # load best model  
+        if path is None:  # load best model  
             path = self.model_save_dir / 'model_best.pth'  
         if path.exists():  
             self.model.load_state_dict(torch.load(path, weights_only=True))  
-        else:
-            if self.rank == 0:
-                logger.warning(f"rank_{self.rank}: Best model not found!")  
-                self.save_model()  
+        elif self.rank == 0:  
+            logger.warning(f"rank_{self.rank}: Best model not found!")  
+            self.save_model()  
+        
         self.model.to(self.device)  
-        self.model = DDP(self.model, device_ids=[self.device_id])
-    
+        # DDP don't auto sync batchnorm  
+        self.ddp_model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
+        self.ddp_model = DDP(self.ddp_model, device_ids=[self.device_id])
+        self.model = self.ddp_model
+
     def save_model(self, tag=None):  
         if tag is None:  
             path = self.model_save_dir / 'model_best.pth'  
         else:  
             path = self.model_save_dir / f'model_{str(tag)}.pth'  
-        torch.save(self.model.state_dict(), path)  
-    
+        if isinstance(self.model, DDP):
+            torch.save(self.model.module.state_dict(), path)
+        else:
+            torch.save(self.model.state_dict(), path)  
+
     def train(self):  
         for epoch in range(self.train_epochs):  
 
             # self play  
             self.model.eval()  
-
             start_time = time.time()  
-            # In Connect4, self-play games can be enhance data
             self_play_data = self.self_play(self.self_play_games, enhance=True)  
             logger.trace(f"rank_{self.rank}: Self play elapsed: {time.time() - start_time: .2f}s.")  
             self.replay_buffer.extend(self_play_data)  
@@ -122,34 +129,39 @@ class AlphaConnectZero(MCTS):
 
             logger.info(f"rank_{self.rank}: Epoch [{epoch+1}/{self.train_epochs}], mean loss: [{mean_loss / self.train_steps:.3f}].")  
 
-            if self.rank == 0:
-
-                # evaluate model  
-                if epoch % 10 == 0:    # evaluate every 10 epochs  
-
-                    # save model  
-                    self.save_model(tag=epoch)  
-                    logger.info(f"rank_{self.rank}: The checkpoint for epoch [{epoch+1}] has been saved.")  
-
-                    # evaluate  
-                    start_time = time.time()  
-                    win_rate = self.evaluate()  
-                    logger.info(f"rank_{self.rank}: Evaluate elapsed: {time.time() - start_time: .2f}s.")  
-                    logger.info(f"rank_{self.rank}: Win rate: {win_rate:.3f}.")  
-                    if win_rate > 0.5:  
-                        self.save_model()  
-                        logger.success(f"rank_{self.rank}: New best model is saved!")  
+            if epoch % 1 == 0 and self.rank == 0:
+                # save model  
+                self.save_model(tag=epoch)  
+                logger.info(f"rank_{self.rank}: The checkpoint for epoch [{epoch+1}] has been saved.")  
+            
+                # evaluate  
+                start_time = time.time()  
+                win_rate = self.evaluate()  
+                logger.info(f"rank_{self.rank}: Evaluate elapsed: {time.time() - start_time: .2f}s.")  
+                logger.info(f"rank_{self.rank}: Win rate: {win_rate:.3f}.")  
+                if win_rate > 0.5:  
+                    self.save_model()
+                    logger.success(f"rank_{self.rank}: New best model is saved!")  
 
     def evaluate(self, oponent_num=3, game_num=1, search_iterations=3):  
         win_rate = 0  
         self.iterations = search_iterations     # for deduce search time in evaluation  
+
         # TODO random select oponent  
-        oponent = AlphaConnectZero(self.game, iterations=search_iterations, \
-            device_id=self.device_id, rank=self.rank, save_dir=self.save_dir)  
-        oponent.load_model()  
+        oponent = copy.deepcopy(self)
+        oponent.model = ZeroModel(self.game.size, self.game.action_shape, 1)
+        oponent.model.load_state_dict(torch.load(self.model_save_dir / 'model_best.pth', weights_only=True))  
+        oponent.model.to(self.device)
+
+        self.model = ZeroModel(self.game.size, self.game.action_shape, 1)
+        # Avoid assigning values to DDP models. DDP model state dict may differ from the normal model's state dict.
+        self.model.load_state_dict(self.ddp_model.module.state_dict())
+        self.model.to(self.device)
+
         for _ in range(oponent_num):  
             win_rate += play_for_win_rate(self.game, self, oponent, game_num)  
         self.iterations = self.train_search_iterations  
+        self.model = self.ddp_model
         return win_rate / oponent_num  
    
     def _array2tensor(self, batch_data):  
@@ -185,8 +197,8 @@ class AlphaConnectZero(MCTS):
         loss_policy = F.kl_div(torch.log(pred_act), action_batch, reduction='batchmean')
         loss_value = F.mse_loss(pred_value, value_batch)
         loss = loss_policy + loss_value
-        loss.backward()     # backward before all_reduce, otherwise the gradients will not be autogradiented
-        self.optimizer.step()
+        loss.backward()    
+        self.optimizer.step()  
         return loss.item()
 
     def _expand(self, node):
