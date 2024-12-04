@@ -108,11 +108,12 @@ class SearchTree:
             state = self.game.reset()
             while not self.game.is_over(state):
                 move, probs = self.search(state, maxmize)
-                state = self.game.make_move(state, move)
-                maxmize = not maxmize
                 states.append(state.board)
                 act_probs.append(probs)
                 current_players.append(state.current_player)
+                # turn
+                state = self.game.make_move(state, move)
+                maxmize = not maxmize
             reward = self.game.get_reward(state)
             # transform data
             game_stack = self._transform_data(states, act_probs, current_players, reward)
@@ -139,6 +140,9 @@ class SearchTree:
         return results
 
     def _transform_data(self, states, act_probs, current_players, reward):
+        """Transform data to be used for training
+           All data are converted to First Player perspective
+        """
         players = np.array(current_players)[:, None]   # (n, 1)
         states = np.array(states)[:, None]   # (n, c, h, w)
         states = states * players[:, :, None, None]     # convert to same player

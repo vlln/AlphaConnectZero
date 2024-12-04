@@ -41,7 +41,7 @@ class ZeroModel(nn.Module):
             nn.Linear(board_size * board_size, 64),
             nn.ReLU(),
             nn.Linear(64, 1),
-            nn.Sigmoid()
+            nn.Tanh()
         )
 
     def forward(self, x):

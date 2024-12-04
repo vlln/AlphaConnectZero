@@ -13,6 +13,7 @@ import numpy as np
 from loguru import logger  
 try:  
     import torch_sdaa  
+    torch.nn.SyncBatchNorm = torch_sdaa.nn.SyncBatchNorm
     torch.cuda = torch.sdaa
     DEVICE_TYPE = 'sdaa'
 except ImportError:  
@@ -66,9 +67,7 @@ class AlphaConnectZero(MCTS):
         np.random.seed(self.rank)
         # torch.manual_seed(self.rank)  # may cause sdaa error
         if self.device_id == -1:
-            # self.device = torch.device('cpu')
-            logger.error('CPU training is not supported yet!')
-            raise NotImplementedError
+            self.device = torch.device('cpu')
         else:
             self.device = torch.device(f'{DEVICE_TYPE}:{self.device_id}')
 
@@ -106,6 +105,10 @@ class AlphaConnectZero(MCTS):
             torch.save(self.model.state_dict(), path)  
 
     def train(self):  
+        if self.device_id == -1:
+            logger.error('CPU training is not supported yet!')
+            raise NotImplementedError
+
         for epoch in range(self.train_epochs):  
 
             # self play  
@@ -225,7 +228,8 @@ class AlphaConnectZero(MCTS):
     def _train_step(self, state_batch, action_batch, value_batch):
         dist.barrier()
         pred_act, pred_value = self.model(state_batch)
-        loss_policy = F.kl_div(torch.log(pred_act), action_batch, reduction='batchmean')
+        # loss_policy = F.kl_div(torch.log(pred_act), action_batch, reduction='batchmean')
+        loss_policy = F.nll_loss(pred_act, action_batch, reduction='batchmean')
         loss_value = F.mse_loss(pred_value, value_batch)
         loss = loss_policy + loss_value
         self.optimizer.zero_grad()
@@ -253,6 +257,7 @@ class AlphaConnectZero(MCTS):
         if self.game.is_over(node.state):
             return node
         board = torch.tensor(node.state.board, dtype=torch.float32).unsqueeze(0).unsqueeze(0).to(self.device)
+        board *= self.act_player    # Model trained on First Player
         with torch.no_grad():
             act_prob, self.value = self.model(board)       # preserve the value for backpropagation
         legal_mask = torch.tensor(self.game.get_legal_moves(node.state)).to(self.device)

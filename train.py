@@ -47,13 +47,13 @@ if __name__ == '__main__':
     # train config
     config = Config(
         game = game,
-        iterations = 40,
+        iterations = 100,
         train_epochs = 100,
-        train_steps = 10,
-        self_play_games = 100,
-        lr = 0.0001,
-        replay_buffer_size = 100000,
-        batch_size = 4096,
+        train_steps = 1000,
+        self_play_games = 20,
+        lr = 0.001,
+        replay_buffer_size = 50000,
+        batch_size = 2048,
         save_dir = './checkpoints'
     )
     # test mini size
