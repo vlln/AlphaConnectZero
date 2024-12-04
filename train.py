@@ -30,13 +30,14 @@ if __name__ == '__main__':
     if not dist.is_available():
         raise RuntimeError("PyTorch distributed is not available.")
         
-    if dist.is_nccl_available():
+    if "torch_sdaa" in globals() and torch_sdaa.distributed.is_available():
+        backend = 'tccl'
+    elif dist.is_nccl_available():
         backend = 'nccl'
     elif dist.is_gloo_available():
         backend = 'gloo'
     else:
         raise RuntimeError("No available backend.")
-    backend = 'tccl'    # for sdaa
 
     # Prameters
     device_count = torch.cuda.device_count()

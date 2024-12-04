@@ -120,7 +120,7 @@ class AlphaConnectZero(MCTS):
             logger.trace(f"rank_{self.rank}: Self play data size: [{len(self_play_data)}], replay buffer size: [{len(self.replay_buffer)}].")  
 
             # sample from replay buffer  
-            minibatch = random.sample(self.replay_buffer, self.batch_size)  
+            minibatch = random.sample(self.replay_buffer, min(self.batch_size, len(self.replay_buffer)))
             states, act_probs, values = self._array2tensor(minibatch)  
 
             # update model  
@@ -229,7 +229,7 @@ class AlphaConnectZero(MCTS):
         dist.barrier()
         pred_act, pred_value = self.model(state_batch)
         # loss_policy = F.kl_div(torch.log(pred_act), action_batch, reduction='batchmean')
-        loss_policy = F.nll_loss(pred_act, action_batch, reduction='batchmean')
+        loss_policy = F.cross_entropy(pred_act, action_batch)
         loss_value = F.mse_loss(pred_value, value_batch)
         loss = loss_policy + loss_value
         self.optimizer.zero_grad()
@@ -260,6 +260,7 @@ class AlphaConnectZero(MCTS):
         board *= self.act_player    # Model trained on First Player
         with torch.no_grad():
             act_prob, self.value = self.model(board)       # preserve the value for backpropagation
+            act_prob = F.softmax(act_prob, dim=1)
         legal_mask = torch.tensor(self.game.get_legal_moves(node.state)).to(self.device)
         act_prob = act_prob.squeeze(0) * legal_mask
         best_act = torch.multinomial(act_prob.view(-1), 1).item()

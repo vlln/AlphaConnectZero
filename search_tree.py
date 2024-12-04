@@ -98,7 +98,7 @@ class SearchTree:
         self.game.print_state(state)
         self.game.print_winner(state)
 
-    def self_play(self, total_games=1000, enhance=False):
+    def self_play(self, total_games=1000, enhance=False, noise_steps=10, noise_alpha=0.2):
         start_time = time.time()
         maxmize = True
         collected_data = []
@@ -106,14 +106,19 @@ class SearchTree:
             logger.trace(f"Self-Play game begins. Game {n}/{total_games}")
             states, act_probs, current_players = [], [], []
             state = self.game.reset()
+            current_step = 0
             while not self.game.is_over(state):
                 move, probs = self.search(state, maxmize)
+                # current_alpha = noise_alpha * (1 - current_step / noise_steps)  
+                # dirichlet_noise = np.random.dirichlet([current_alpha] * len(probs))  
+                # noisy_probs = (1 - current_alpha) * probs + current_alpha * dirichlet_noise  
                 states.append(state.board)
                 act_probs.append(probs)
                 current_players.append(state.current_player)
                 # turn
                 state = self.game.make_move(state, move)
                 maxmize = not maxmize
+                current_step += 1
             reward = self.game.get_reward(state)
             # transform data
             game_stack = self._transform_data(states, act_probs, current_players, reward)

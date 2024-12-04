@@ -20,7 +20,7 @@ if __name__ == "__main__":
     
     tree = MCTS(game, iterations=40)
     # tree = Minimax(game)
-    # tree.play('O')
+    tree.play('O')
     # tree.play('X')
     start_time = datetime.now()
 
@@ -29,8 +29,7 @@ if __name__ == "__main__":
     # zero_tree = AlphaConnectZero(game, iterations=5)
     # win_rate = play_for_win_rate(game, zero_tree, tree, 2)
     # print(f"Win rate: {win_rate}")
-    data = tree.self_play(2, enhance=True)
-    print(data)
+    # data = tree.self_play(2, enhance=True)
     # tree.paralle_self_play(10)
     print(f"Time taken: {datetime.now() - start_time}")
     

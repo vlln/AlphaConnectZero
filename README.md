@@ -16,7 +16,9 @@ Here are some specifications of the game:
 - numpy>=1.24.4
 - torch>=2.4.1
 - loguru>=0.7.2
-
+[ ] add a self-play noise
+[ ] inheriting the tree during self-play
+[ ] random select a oponent during evaluation
 ### Getting Started
 
 
