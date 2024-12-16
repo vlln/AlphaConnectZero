@@ -98,7 +98,7 @@ class SearchTree:
         self.game.print_state(state)
         self.game.print_winner(state)
 
-    def self_play(self, total_games=1000, enhance=False, noise_steps=10, noise_alpha=0.2):
+    def self_play(self, total_games=1000, enhance=False, noise_steps=2, noise_alpha=0.03, temperature=0.5):
         start_time = time.time()
         maxmize = True
         collected_data = []
@@ -109,9 +109,17 @@ class SearchTree:
             current_step = 0
             while not self.game.is_over(state):
                 move, probs = self.search(state, maxmize)
-                # current_alpha = noise_alpha * (1 - current_step / noise_steps)  
-                # dirichlet_noise = np.random.dirichlet([current_alpha] * len(probs))  
-                # noisy_probs = (1 - current_alpha) * probs + current_alpha * dirichlet_noise  
+                if current_step < noise_steps:
+                    current_alpha = noise_alpha * (1 - current_step / noise_steps)  
+                    dirichlet_noise = np.random.dirichlet([current_alpha] * len(probs))  
+                    probs = (1 - current_alpha) * probs + current_alpha * dirichlet_noise  
+                    # normalize
+                    # temperature
+                    probs = np.log(probs) / temperature
+                    exp_probs = np.exp(probs- np.max(probs))
+                    probs = exp_probs / np.sum(exp_probs)
+                    temperature = max(0.01, temperature * 0.99)
+                    move = np.random.choice(self.game.get_possible_moves(state), p=probs)
                 states.append(state.board)
                 act_probs.append(probs)
                 current_players.append(state.current_player)

@@ -54,21 +54,21 @@ if __name__ == '__main__':
         self_play_games = 20,
         lr = 0.001,
         replay_buffer_size = 50000,
-        batch_size = 2048,
+        batch_size = 512,
         save_dir = './checkpoints'
     )
     # test mini size
-    config = Config(
-        game = game,
-        iterations = 3,
-        train_epochs = 40, 
-        train_steps = 10,
-        self_play_games = 10,
-        lr = 0.001, 
-        replay_buffer_size = 100000,
-        batch_size = 32,
-        save_dir = './checkpoints'  
-    )
+    # config = Config(
+    #     game = game,
+    #     iterations = 3,
+    #     train_epochs = 40, 
+    #     train_steps = 10,
+    #     self_play_games = 10,
+    #     lr = 0.001, 
+    #     replay_buffer_size = 100000,
+    #     batch_size = 32,
+    #     save_dir = './checkpoints'  
+    # )
     
     logger.info(f"Prameters: {config.args}")
     logger.info(f"Backend: {backend}, Device count: {device_count}, Process per device: {process_per_device}, World size: {world_size}")
